@@ -1,0 +1,4 @@
+.vscode
+*.opendb
+JuceLibraryCode/
+Builds/
