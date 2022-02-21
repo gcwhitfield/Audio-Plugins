@@ -53,6 +53,17 @@ public:
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
 
+    //==============================================================================
+    // parameters for phaser
+    juce::AudioParameterInt *stages;
+    juce::AudioParameterFloat *mix;
+    juce::AudioParameterFloat *depth;
+    juce::AudioParameterFloat *spread;
+    juce::AudioParameterFloat *rate;
+    
+    // 'filter' is an infinite impulse response filter that processes the audio samples inside of
+    // processBlock
+    juce::dsp::ProcessorDuplicator <juce::dsp::IIR::Filter<float>, juce::dsp::IIR::Coefficients<float>> filter;
 private:
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhaserAudioProcessor)

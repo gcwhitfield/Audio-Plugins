@@ -14,7 +14,8 @@
 //==============================================================================
 /**
 */
-class PhaserAudioProcessorEditor  : public juce::AudioProcessorEditor
+class PhaserAudioProcessorEditor  : public juce::AudioProcessorEditor, 
+                                    private juce::Slider::Listener
 {
 public:
     PhaserAudioProcessorEditor (PhaserAudioProcessor&);
@@ -30,4 +31,18 @@ private:
     PhaserAudioProcessor& audioProcessor;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PhaserAudioProcessorEditor)
+    
+    // Sliders and labels for the plugin UI
+    juce::Slider rateSlider;
+    juce::Label rateLabel;
+    juce::Slider depthSlider;
+    juce::Label depthLabel;
+    juce::Slider spreadSlider;
+    juce::Label spreadLabel;
+    juce::Slider stagesSlider;
+    juce::Label stagesLabel;
+    juce::Slider mixSlider;
+    juce::Label mixLabel;
+
+    void sliderValueChanged(juce::Slider *s) override;
 };
