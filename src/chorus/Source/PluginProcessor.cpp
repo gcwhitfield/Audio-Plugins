@@ -154,6 +154,8 @@ void ChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     {
         auto* channelData = buffer.getWritePointer (channel);
 
+        
+
         // ..do something to the data...
     }
 }
