@@ -22,6 +22,37 @@ PhaserAudioProcessor::PhaserAudioProcessor()
                        )
 #endif
 {
+    addParameter(mix = new juce::AudioParameterFloat(
+        "mix", // parameter ID
+        "Mix", // paremeter name
+        0.0, // min value
+        1.0, // max value
+        0.0)); // default value
+    addParameter(stages = new juce::AudioParameterInt(
+        "stages",
+        "Stages",
+        1, 
+        10, 
+        1
+    ));
+    addParameter(depth = new juce::AudioParameterFloat(
+        "depth",
+        "Depth", 
+        0.0, 
+        100.0, 
+        0.0));
+    addParameter(spread = new juce::AudioParameterFloat(
+        "spread", 
+        "Spread", 
+        0.0, 
+        100.0, 
+        0.0));
+    addParameter(rate = new juce::AudioParameterFloat(
+        "rate", 
+        "Rate", 
+        0.1, 
+        10.0,
+        0.1));
 }
 
 PhaserAudioProcessor::~PhaserAudioProcessor()
@@ -95,6 +126,17 @@ void PhaserAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    
+    // IIR filter initialization taken from TheAudioProgrammer's example code on JUCE IIR Filters
+    // https://github.com/TheAudioProgrammer/juceIIRFilter/blob/master/Source/PluginProcessor.cpp
+    
+    juce::dsp::ProcessSpec spec;
+    spec.sampleRate = sampleRate;
+    spec.maximumBlockSize = samplesPerBlock;
+    spec.numChannels = getTotalNumInputChannels();
+    
+    filter.prepare(spec);
+    filter.reset();
 }
 
 void PhaserAudioProcessor::releaseResources()
@@ -135,26 +177,46 @@ void PhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     auto totalNumInputChannels  = getTotalNumInputChannels();
     auto totalNumOutputChannels = getTotalNumOutputChannels();
 
-    // In case we have more outputs than inputs, this code clears any output
-    // channels that didn't contain input data, (because these aren't
-    // guaranteed to be empty - they may contain garbage).
-    // This is here to avoid people getting screaming feedback
-    // when they first compile a plugin, but obviously you don't need to keep
-    // this code if your algorithm always overwrites all the output channels.
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
-
-    // This is the place where you'd normally do the guts of your plugin's
-    // audio processing...
-    // Make sure to reset the state if your inner loop is processing
-    // the samples and the outer loop is handling the channels.
-    // Alternatively, you can process the samples with the channels
-    // interleaved by keeping the same state.
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    
+    juce::AudioBuffer<float> bufferCopy = buffer;
+    juce::dsp::AudioBlock<float> dry (buffer);
+    juce::dsp::AudioBlock<float> wet (bufferCopy);
+    float g = 1.0;
+    
+    // ---------- Stages (number of loops in for loop) ----------
+    for (size_t i = 0; i < *stages; i++)
     {
-        auto* channelData = buffer.getWritePointer (channel);
-
-        // ..do something to the data...
+        // create an allpass filter with coefficients designed to place pi phase at a particular frequency
+        // allpass filter design from Stanford lesson on phasers
+        // https://ccrma.stanford.edu/~jos/pasp/Phasing_2nd_Order_Allpass_Filters.html
+        
+        // logarithmically interpolate the notch angles between 100 hz and 10,000 hz
+        float angle = pow(100, i / (float)*stages) * pow(10000, (1 - (i / (float)*stages)));
+        float radius = 0.5;
+        float a1 = -radius * 2 * cos(angle);
+        float a2 = radius * radius;
+        
+        // update the filter state
+        // filter update derived from example on JUCE IIR filtering from The Audio Programmer
+        // https://github.com/TheAudioProgrammer/juceIIRFilter/blob/master/Source/PluginProcessor.cpp
+        *filter.state = juce::dsp::IIR::Coefficients<float>(a2, a1, 1, 1, a1, a2);
+        filter.process(juce::dsp::ProcessContextReplacing<float>(wet));
+    }
+    
+    for (int channel = 0; channel < buffer.getNumChannels(); channel++) {
+        float *data = buffer.getWritePointer(channel, 0);
+        float *d = dry.getChannelPointer(channel);
+        float *w = wet.getChannelPointer(channel);
+        
+        for (size_t i = 0; i < buffer.getNumSamples(); i++) {
+            // add input audio to wet signal with 'g' parameter
+            w[i] = g * d[i];
+            
+            // --------- Mix ----------
+            data[i] = d[i]*(1.0 - *mix) + w[i]*(*mix);
+        }
     }
 }
 
