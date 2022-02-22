@@ -95,6 +95,32 @@ void ChorusAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock
 {
     // Use this method as the place to do any pre-playback
     // initialisation that you need..
+    
+    juce::dsp::ProcessSpec spec;
+    spec.maximumBlockSize = samplesPerBlock;
+    spec.sampleRate = sampleRate;
+    
+    chorus.prepare (spec);
+    chorus.reset();
+    
+    chorus.setRate(3);
+    chorus.setDepth(0.03f);
+    chorus.setCentreDelay(0);
+    chorus.setFeedback(0.0f);
+    chorus.setMix(0.8f);
+    
+    const int numInputChannels = getTotalNumInputChannels();
+    const int delayBufferSize =  10 * (sampleRate + samplesPerBlock);
+    mSampleRate = sampleRate;
+    
+    mDelayBuffer.setSize(numInputChannels, delayBufferSize);
+    
+    
+    //juce::dsp::ProcessSpec lfoSpec = { sampleRate,samplesPerBlock,getMainBusNumOutputChannels() };
+    lfo.prepare(spec);
+    //type of oscillator
+    lfo.initialise([](float x){return std::sin(x);}, 1000);
+    lfo.setFrequency(100);
 }
 
 void ChorusAudioProcessor::releaseResources()
@@ -150,11 +176,93 @@ void ChorusAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     // the samples and the outer loop is handling the channels.
     // Alternatively, you can process the samples with the channels
     // interleaved by keeping the same state.
+    
+    //JUCE chorus
+//    juce::dsp::AudioBlock<float> sampleBlock (buffer);
+//    chorus.process (juce::dsp::ProcessContextReplacing<float> (sampleBlock));
+    
+    //Own chorus
+    //lfo.setFrequency(1.0);
+    //std::cout << lfo.getFrequency() + "\n";
+    //juce::Logger::outputDebugString(lfo.getFrequency() + "\n");
+
+    float lfoOffset = std::max((10.0f * lfo.processSample(0.0f) + 10.0f), 0.0f) + 30;
+    
+    std::cout << lfoOffset;
+    std::cout << "\n";
+    const int bufferLength = buffer.getNumSamples();
+    const int delayBufferLength = mDelayBuffer.getNumSamples();
+
+    float delayTime1 = lfoOffset; //+ juce::Random::getSystemRandom().nextInt(1); //~30-50ms
+    float delayTime2 = juce::Random::getSystemRandom().nextInt(10) + lfoOffset;
+    float delayTime3 = 0;
+
+    //delayTime1 = 30;
+    //delayTime2 = 50;
+    // Think about:
+    /*
+     Mag/phase of each system -- and delay lines
+     1 + e^-j*omega*T
+     
+     why are phaser and chorus implemented differently
+     */
     for (int channel = 0; channel < totalNumInputChannels; ++channel)
     {
-        auto* channelData = buffer.getWritePointer (channel);
+        //buffer.applyGain(0.3);
+        const float *bufferData = buffer.getReadPointer(channel);
+        const float *delayBufferData = mDelayBuffer.getReadPointer(channel);
+
+        fillDelayBuffer(channel, bufferLength, delayBufferLength, bufferData, delayBufferData);
+        getFromDelayBuffer(buffer, channel, bufferLength, delayBufferLength, bufferData, delayBufferData, delayTime1);
+        //getFromDelayBuffer(buffer, channel, bufferLength, delayBufferLength, bufferData, delayBufferData, delayTime2);
+
 
         // ..do something to the data...
+    }
+
+    mWritePosition += bufferLength;
+    mWritePosition %= delayBufferLength;
+    
+    //buffer.applyGain(3.0);
+}
+
+void ChorusAudioProcessor::fillDelayBuffer(int channel, const int bufferLength, const int delayBufferLength, const float *bufferData, const float *delayBufferData)
+{
+    // Copy data from main buffer to delay buffer
+    if(delayBufferLength > bufferLength + mWritePosition)
+    {
+        mDelayBuffer.copyFromWithRamp(channel, mWritePosition, bufferData, bufferLength, 0.8, 0.8);
+    }
+    
+    else
+    {
+        int bufferRemaining = delayBufferLength - mWritePosition;
+        mDelayBuffer.copyFromWithRamp(channel, mWritePosition, bufferData, bufferRemaining, 0.8, 0.8);
+        mDelayBuffer.copyFromWithRamp(channel, 0, bufferData, bufferLength - bufferRemaining, 0.8, 0.8);
+    }
+}
+
+void ChorusAudioProcessor::getFromDelayBuffer(juce::AudioBuffer<float>& buffer, int channel, const int bufferLength, const int delayBufferLength, const float *bufferData, const float *delayBufferData, float delayTime)
+{
+//    float offset_float = mSampleRate * delayTime / 1000;
+////    std::cout << offset_float;
+////    std::cout << "\n";
+//    int offset = static_cast<int> (offset_float);
+////    std::cout << offset;
+////    std::cout << "\n";
+//    int readPosition = static_cast<int> (delayBufferLength + mWritePosition - offset) % delayBufferLength;
+    const int readPosition = static_cast<int> (delayBufferLength + mWritePosition - (mSampleRate * delayTime / 1000)) % delayBufferLength;
+    
+    if(delayBufferLength > bufferLength + readPosition)
+    {
+        buffer.addFromWithRamp(channel, 0, delayBufferData + readPosition, bufferLength, 1.0, 1.0);
+    }
+    
+    else
+    {
+        int bufferRemaining = delayBufferLength - readPosition;
+        buffer.addFromWithRamp(channel, 0, delayBufferData + readPosition, bufferRemaining, 1.0, 1.0);
+        buffer.addFromWithRamp(channel, bufferRemaining, delayBufferData, bufferLength - bufferRemaining, 1.0, 1.0);
     }
 }
 
