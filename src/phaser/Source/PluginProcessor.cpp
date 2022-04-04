@@ -185,26 +185,47 @@ void PhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
     juce::dsp::AudioBlock<float> wet (bufferCopy);
     float g = 1.0;
     
-    // ---------- Stages (number of loops in for loop) ----------
-    for (size_t i = 0; i < *stages; i++)
-    {
-        // create an allpass filter with coefficients designed to place pi phase at a particular frequency
-        // allpass filter design from Stanford lesson on phasers
-        // https://ccrma.stanford.edu/~jos/pasp/Phasing_2nd_Order_Allpass_Filters.html
-        
-        // logarithmically interpolate the notch angles between 100 hz and 10,000 hz
-        float angle = pow(100, i / (float)*stages) * pow(10000, (1 - (i / (float)*stages)));
-        float radius = 0.5;
-        float a1 = -radius * 2 * cos(angle);
-        float a2 = radius * radius;
-        
-        // update the filter state
-        // filter update derived from example on JUCE IIR filtering from The Audio Programmer
-        // https://github.com/TheAudioProgrammer/juceIIRFilter/blob/master/Source/PluginProcessor.cpp
-        *filter.state = juce::dsp::IIR::Coefficients<float>(a2, a1, 1, 1, a1, a2);
-        filter.process(juce::dsp::ProcessContextReplacing<float>(wet));
+    size_t num_passes = 3; // the number of times that the input buffer is paessed through the
+    // system
+
+    for (int channel = 0; channel < buffer.getNumChannels(); channel++) {
+        float *d = dry.getChannelPointer(channel);
+        float *w = wet.getChannelPointer(channel);
+        for (size_t k = 0; k < num_passes; k++) {
+            // ---------- Stages (number of notches added to signal) ----------
+            for (size_t i = 1; i < *stages + 1; i++) {
+                // create an allpass filter with coefficients designed to place pi phase at a particular frequency
+                // allpass filter design from Stanford lesson on phasers
+                // https://ccrma.stanford.edu/~jos/pasp/Phasing_2nd_Order_Allpass_Filters.html
+                
+                // logarithmically place the notch frequencies between 100 hz and 20,000 hz
+                float freq = pow(100, i / (float)*stages) * pow(20000, (1 - (i / (float)*stages)));
+                float radius = 1.2;
+                float a1 = -radius * 2 * cos(freq / getSampleRate());
+                float a2 = radius * radius;
+                
+                // Convolve the signal with an allpass filter
+                for (size_t j = 0; j < buffer.getNumSamples(); j++) {
+                    float x_n = d[j];
+                    float x_n_minus_2 = d[(j-2) % buffer.getNumSamples()];
+                    float y_n_minus_2 = w[(j-2) % buffer.getNumSamples()];
+                    float x_n_minus_1 = d[(j-1) % buffer.getNumSamples()];
+                    float y_n_minus_1 = w[(j-1) % buffer.getNumSamples()];
+                    if (j  <= 1) {
+                        x_n_minus_2 = 0;
+                        y_n_minus_2 = 0;
+                    }
+                    if (j <= 0) {
+                        x_n_minus_1 = 0;
+                        y_n_minus_1 = 0;
+                    }
+                    float y_n = x_n_minus_2 + ((x_n + a1*(x_n_minus_1 - y_n_minus_1) - y_n_minus_2) / a2);
+                    w[i] = y_n;
+                }
+            }
+        }
     }
-    
+
     for (int channel = 0; channel < buffer.getNumChannels(); channel++) {
         float *data = buffer.getWritePointer(channel, 0);
         float *d = dry.getChannelPointer(channel);
@@ -212,11 +233,13 @@ void PhaserAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce:
         
         for (size_t i = 0; i < buffer.getNumSamples(); i++) {
             // add input audio to wet signal with 'g' parameter
-            w[i] = g * d[i];
+            w[i] += g * d[i];
+            w[i] /= 2.0f;
             
             // --------- Mix ----------
             data[i] = d[i]*(1.0 - *mix) + w[i]*(*mix);
         }
+
     }
 }
 
