@@ -32,10 +32,10 @@ def cubic_unit_spline(t):
 
 RATIO_HIGH = 1/2
 RATIO_LOW = 2
-ATTACK = 0 # milliseconds
-RELEASE = 0 # milliseconds
+ATTACK = 400 # milliseconds
+RELEASE = 1000 # milliseconds
 THRESHOLD_HIGH = 0.5
-THRESHOLD_LOW = 0.1
+THRESHOLD_LOW = 0.05
 
 def process_compressor(samp_rate, audio):
     # read the audio file
@@ -48,18 +48,23 @@ def process_compressor(samp_rate, audio):
     # audio += 0.2 * np.sin(np.arange(0, 1, 0.01) * 5)
     original_audio = np.copy(audio)
 
+    
     # ---------- downwards compression ----------
     # audio = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
     _attack = int((ATTACK * samp_rate) / 1000) # samples
     _release = int((RELEASE * samp_rate) / 1000) # samples
 
     # test cubic interpolation function
-    x = np.arange(0, 1, 0.01)
-    interpolation_vectorize = np.vectorize(cubic_unit_spline)
-    y = interpolation_vectorize(x)
-    plt.stem(x, y)
-    plt.title("Cubic unit spline")
-    plt.show()
+    # x = np.arange(0, 1, 0.01)
+    # interpolation_vectorize = np.vectorize(cubic_unit_spline)
+    # y = interpolation_vectorize(x)
+    # plt.stem(x, y)
+    # plt.title("Cubic unit spline")
+    # plt.show()
+
+    # save vector of data points to create scatterplot
+    drys = np.zeros(audio.shape[0])
+    wets = np.zeros(audio.shape[0])
 
     m = 0 # the "stength" of the compressor plugin. The attack and release parameters control m
     # apply compressor algorithm
@@ -87,6 +92,13 @@ def process_compressor(samp_rate, audio):
         
         interp = cubic_unit_spline(m) # smoothly interpolate the release and attack effect
         audio[i] = interp*wet + (1 - interp)*dry
+        drys[i] = dry
+        wets[i] = wet
+
+    plt.scatter(drys, wets)
+    plt.title("Scatterlpot of downwards compressor")
+    plt.show()
+    
 
     # ---------- upwards compression ----------
     m = 0 #
@@ -104,7 +116,8 @@ def process_compressor(samp_rate, audio):
                     m = 1
             else:
                 m = 1
-            wet = (RATIO_LOW) * (dry - THRESHOLD_LOW*sign) + THRESHOLD_LOW*sign
+            # wet = (RATIO_LOW) * (dry - THRESHOLD_LOW*sign) + THRESHOLD_LOW*sign
+            wet = (abs(dry - THRESHOLD_LOW*sign)*(1.0 - (1/RATIO_LOW))*sign + dry)
         else:
             if _release > 0:
                 m -= (1/_release)
@@ -113,7 +126,13 @@ def process_compressor(samp_rate, audio):
             else:
                 m = 0
         
+        
         interp = cubic_unit_spline(m) # smoothly interpolate the release and attack effect
         audio[i] = interp*wet + (1 - interp)*dry
+        drys[i] = dry
+        wets[i] = wet
 
+    plt.scatter(drys, wets)
+    plt.title("Scatterlpot of upwards compressor")
+    plt.show()
     return audio
